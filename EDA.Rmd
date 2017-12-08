@@ -1,0 +1,111 @@
+---
+title: "Proyecto_final"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+
+```{r }
+library(dplyr)
+library(magrittr)
+library(lubridate)
+
+setwd("/home/lmalpica/Desktop/regresionavanzada2017/exchangerate")
+series<-read.csv("series_fx_usd.csv")
+
+names1<-lapply(strsplit(colnames(series), split="\\."),'[[' , 1) %>% paste0(":")
+colnames(series)<-paste0(names1, unlist(series[1,]))
+
+colnames(series)[1]<-"Fecha"
+
+
+series<-series[c(-1,-2,-3),]
+series$Fecha<-as_date(series$Fecha)
+series[,-1]<-lapply(series[,-1], as.character)
+series[,-1]<-lapply(series[,-1], as.numeric)
+
+date1<-as_date("2014-12-31")
+
+#set time period
+series15_17<-subset(series, series$Fecha >date1)
+
+#remove nas & nan
+
+series15_17<-series15_17[rowSums((series15_17[,-1])=="NaN") == 0,]
+series15_17<-na.omit(series15_17)
+
+#Convertir el tipo de cambio de dolares a pesos
+series15_17mxn<-series15_17
+series15_17mxn[-1]<-mutate_all(series15_17mxn[-1], funs( . /series15_17mxn$`MX:MXN:Mexican Peso`))
+
+```
+
+
+```{r}
+library(ggplot2)
+library(reshape2)
+series1517_stacked<-melt(data = series15_17mxn, id="Fecha")
+ggplot(series1517_stacked, aes(x=Fecha, y=value, colour=variable, group=variable)) + 
+       geom_line() +
+	   scale_colour_manual(values=1:39)+
+	   ggtitle("Tipo de cambio peso mexicano") 
+#ver como centrar titulo
+
+```
+
+
+
+```{r}
+library(ggplot2)
+library(reshape2)
+series1517_stacked<-melt(data = series15_17mxn, id="Fecha")
+ggplot(series1517_stacked[series1517_stacked[,2]=="GB:GBP:Pound Sterling"|series1517_stacked[,2]=="US:USD:US Dollar",], aes(x=Fecha, y=value, colour=variable, group=variable)) + 
+       geom_line() +
+	   scale_colour_manual(values=1:2)+
+	   ggtitle("Tipo de cambio peso mexicano") 
+
+
+```
+
+
+
+```{r}
+library(ggplot2)
+library(reshape2)
+series1517_stacked<-melt(data = series15_17mxn, id="Fecha")
+ggplot(series1517_stacked[series1517_stacked$value<.1,], aes(x=Fecha, y=value, colour=variable, group=variable)) + 
+       geom_line() +
+	   ggtitle("Tipo de cambio peso mexicano") 
+
+```
+
+
+
+
+
+
+
+
