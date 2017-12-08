@@ -1,0 +1,63 @@
+---
+title: "Proyecto_final"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+
+```{r }
+library(dplyr)
+library(magrittr)
+library(lubridate)
+
+setwd("/home/lmalpica/Desktop/regresionavanzada2017/exchangerate")
+series<-read.csv("series_fx_usd.csv")
+colnames(series)<-as.character(unlist(series[1,]))
+colnames(series)[1]<-"Fecha"
+series<-series[c(-1,-2,-3),]
+series$Fecha<-as_date(series$Fecha)
+series[,-1]<-lapply(series[,-1], as.character)
+series[,-1]<-lapply(series[,-1], as.numeric)
+date1<-as_date("2014-12-31")
+#set time period
+series15_17<-subset(series, series$Fecha >date1)
+#remove nas
+series15_17<-series15_17[rowSums(is.na(series15_17)) == 0,]
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
