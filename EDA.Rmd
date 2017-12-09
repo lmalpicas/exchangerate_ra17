@@ -32,8 +32,8 @@ Note that the `echo = FALSE` parameter was added to the code chunk to prevent pr
 library(dplyr)
 library(magrittr)
 library(lubridate)
+library(corrplot)
 
-setwd("/home/lmalpica/Desktop/regresionavanzada2017/exchangerate")
 series<-read.csv("series_fx_usd.csv")
 colnames(series)<-as.character(unlist(series[1,]))
 colnames(series)[1]<-"Fecha"
@@ -47,6 +47,13 @@ series15_17<-subset(series, series$Fecha >date1)
 #remove nas
 series15_17<-series15_17[rowSums(is.na(series15_17)) == 0,]
 
+#Buscamos tipos de cambio correlacionados con Mexico
+
+monedas<-c("VEF:Bolivar Fuerte","GBP:Pound Sterling","NOK:Norwegian Krone","ARS:Argentine Peso","INR:Indian Rupee","CAD:Canadian Dollar","COP:Colombian Peso","UYU:Uruguayan Peso","LKR:Sri Lanka Rupee","MXN:Mexican Peso")
+cor <- cor(series15_17[,monedas])
+corrplot(cor, method = "circle")
+#Armamos el data set final
+series_final <- cbind(series15_17[,"Fecha"],series15_17[,monedas])
 ```
 
 
