@@ -1,0 +1,449 @@
+---
+title: "Modelo para prediccion de tipos de cambio"
+author: "Maximiliano Alvarez, Daniel Camarena, Lorena Malpica"
+output: html_document
+---
+
+
+```{r warning=FALSE, message=FALSE, echo=FALSE }
+require(dplyr)
+require(magrittr)
+require(lubridate)
+require(corrplot)
+require(knitr)
+require(ggplot2)
+require(R2jags)
+```
+#Introduccion
+
+Hoy en dia se cuenta con un gran volumen de informacion de las distintas economias del mundo, sin embargo, es complicado predecir como es que el cambio en algunas de ellas afectan a otras. En un mundo globalizado como en el que vivimos hoy esta pregunta es de gran interes.
+
+El objetivo de este trabajo es presentar un modelo de regresion avanzado que permita predecir el comportamiento del tipo de cambio del peso mexicano vs el dolar americano, a partir de los tipos de cambio de otras economias ajenas a la mexicana.
+
+#Datos
+
+Para poder lograr nuestro objetivo contamos con una base de datos que contiene los tipos de cambio diarios para las siguientes monedas desde Agosto de 1976 a la fecha:
+
+```{r warning=FALSE, message=FALSE, echo=FALSE}
+series<-read.csv("series_fx_usd.csv")
+colnames(series)<-as.character(unlist(series[1,]))
+colnames(series)[1]<-"Fecha"
+series<-series[c(-1,-2,-3),]
+series$Fecha<-as_date(series$Fecha)
+series[,-1]<-lapply(series[,-1], as.character)
+series[,-1]<-lapply(series[,-1], as.numeric)
+colnames(series[,-1])
+```
+
+
+Veamos un ejemplo de nuestros datos (filtrando algunas monedas)
+
+
+```{r warning=FALSE, message=FALSE, echo=FALSE}
+monedas<-c("Fecha","GBP:Pound Sterling","CAD:Canadian Dollar","COP:Colombian Peso","MXN:Mexican Peso")
+kable(head(series[,monedas],13),format="html")
+```
+
+
+Para fines de nuestro analisis usaremos datos a partir de 2015 y hasta 2017. Una vez filtrados nuestros datos buscaremos las correlaciones entre las distintas monedas y trabajaremos con aquellas cuya correlacion con el peso mexicano sea mayor
+
+```{r warning=FALSE, message=FALSE, echo=FALSE, width=20, heigth=16}
+date1<-as_date("2014-12-31")
+#set time period
+series15_17<-subset(series, series$Fecha >date1)
+#remove nas
+series15_17<-series15_17[rowSums(is.na(series15_17)) == 0,]
+series15_17<-series15_17[,-35]
+cor1<-cor(series15_17[,-1])
+corrplot(cor1, method="circle", tl.cex=0.5)
+```
+
+
+De la grafica anterior podemos decir que las monedas que estan fuertemente correlacionadas con el peso son:
+
+* Peso Argentino
+* Dolar Canadiense
+* Franco Swizo
+* Yuan Renminbi
+* Peso Colombiano
+* Libra Esterlina
+* Rupia India
+* Rupia de Sri Lanka
+* Ringgit Malasio
+* Krona Sueca
+* Bolivar Fuerte
+
+Si vemos nuevamente la matriz de correlaciones filtrando los datos con las monedas anteriormente mencionadas tendremos lo siguiente:
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+#Buscamos tipos de cambio correlacionados con Mexico
+monedas<-c("VEF:Bolivar Fuerte","CHF:Swiss Franc","CNY:Yuan Renminbi","MYR:Malaysian Ringgit","SEK:Swedish Krona","GBP:Pound Sterling","ARS:Argentine Peso","INR:Indian Rupee","CAD:Canadian Dollar","COP:Colombian Peso","LKR:Sri Lanka Rupee","MXN:Mexican Peso")
+cor <- cor(series15_17[,monedas])
+corrplot(cor, method = "circle",tl.cex=0.8)
+#Armamos el data set final
+series_final <- cbind(series15_17[,"Fecha"],series15_17[,monedas])
+colnames(series_final)<-c("Fecha","VEF:Bolivar Fuerte","CHF:Swiss Franc","CNY:Yuan Renminbi","MYR:Malaysian Ringgit","SEK:Swedish Krona","GBP:Pound Sterling","ARS:Argentine Peso","INR:Indian Rupee","CAD:Canadian Dollar","COP:Colombian Peso","LKR:Sri Lanka Rupee","MXN:Mexican Peso")
+```
+
+Veamos como ha variado el peso mexicano a lo largo de estos dos años:
+
+```{r message=FALSE, warning=FALSE, echo=FALSE, error=FALSE}
+columnas<-c("Fecha","MXN:Mexican Peso")
+ts<-series_final[,columnas]
+ggplot(data=ts, aes(x=Fecha, y=`MXN:Mexican Peso`))+
+  geom_line(color="blue")
+```
+
+Veamos el comportamiento de las monedas que estan fuertemente correlacionadas con el peso mexicano
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+columnas<-c("Fecha","VEF:Bolivar Fuerte")
+ts<-series_final[,columnas]
+ggplot(data=ts, aes(x=Fecha, y=`VEF:Bolivar Fuerte`))+
+  geom_line(color="blue")
+```
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+columnas<-c("Fecha","CHF:Swiss Franc")
+ts<-series_final[,columnas]
+ggplot(data=ts, aes(x=Fecha, y=`CHF:Swiss Franc`))+
+  geom_line(color="blue")
+```
+
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+columnas<-c("Fecha","CNY:Yuan Renminbi")
+ts<-series_final[,columnas]
+ggplot(data=ts, aes(x=Fecha, y=`CNY:Yuan Renminbi`))+
+  geom_line(color="blue")
+```
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+columnas<-c("Fecha","MYR:Malaysian Ringgit")
+ts<-series_final[,columnas]
+ggplot(data=ts, aes(x=Fecha, y=`MYR:Malaysian Ringgit`))+
+  geom_line(color="blue")
+```
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+columnas<-c("Fecha","SEK:Swedish Krona")
+ts<-series_final[,columnas]
+ggplot(data=ts, aes(x=Fecha, y=`SEK:Swedish Krona`))+
+  geom_line(color="blue")
+```
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+columnas<-c("Fecha","INR:Indian Rupee")
+ts<-series_final[,columnas]
+ggplot(data=ts, aes(x=Fecha, y=`INR:Indian Rupee`))+
+  geom_line(color="blue")
+```
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+columnas<-c("Fecha","LKR:Sri Lanka Rupee")
+ts<-series_final[,columnas]
+ggplot(data=ts, aes(x=Fecha, y=`LKR:Sri Lanka Rupee`))+
+  geom_line(color="blue")
+```
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+columnas<-c("Fecha","ARS:Argentine Peso")
+ts<-series_final[,columnas]
+ggplot(data=ts, aes(x=Fecha, y=`ARS:Argentine Peso`))+
+  geom_line(color="blue")
+```
+
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+columnas<-c("Fecha","GBP:Pound Sterling")
+ts<-series_final[,columnas]
+ggplot(data=ts, aes(x=Fecha, y=`GBP:Pound Sterling`))+
+  geom_line(color="blue")
+```
+
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+columnas<-c("Fecha","CAD:Canadian Dollar")
+ts<-series_final[,columnas]
+ggplot(data=ts, aes(x=Fecha, y=`CAD:Canadian Dollar`))+
+  geom_line(color="blue")
+```
+
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+columnas<-c("Fecha","COP:Colombian Peso")
+ts<-series_final[,columnas]
+ggplot(data=ts, aes(x=Fecha, y=`COP:Colombian Peso`))+
+  geom_line(color="blue")
+```
+
+De las graficas presentadas anteriormente podemos concluir lo siguiente:
+
+* El peso colombiano y el dolar canadiense tienen un comportamiento muy similar frente al dolar
+* El dolar vs el VEF practimante ha tenido dos valores en los ultimos dos años
+* El valor del dolar vs el peso Argentino tiene una tendencia a la alta y no ha tenido bajas importantes en los ultimos dos años
+* El dolar vs el peso mexicano alcanzo un pico en Enero de 2017 y a partir de ahi ha perdido valor de manera considerable
+
+Ahora estudiemos el comportamiento del peso mexicano contra las demás monedas
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+columnas<-c("MXN:Mexican Peso","VEF:Bolivar Fuerte")
+ts<-series_final[,columnas]
+ggplot(data=ts, aes(x=`VEF:Bolivar Fuerte`, y=`MXN:Mexican Peso`))+
+  geom_point(color="blue")
+```
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+columnas<-c("MXN:Mexican Peso","CHF:Swiss Franc")
+ts<-series_final[,columnas]
+ggplot(data=ts, aes(x=`CHF:Swiss Franc`, y=`MXN:Mexican Peso`))+
+  geom_point(color="blue")
+```
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+columnas<-c("MXN:Mexican Peso","CNY:Yuan Renminbi")
+ts<-series_final[,columnas]
+ggplot(data=ts, aes(x=`CNY:Yuan Renminbi`, y=`MXN:Mexican Peso`))+
+  geom_point(color="blue")
+```
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+columnas<-c("MXN:Mexican Peso","MYR:Malaysian Ringgit")
+ts<-series_final[,columnas]
+ggplot(data=ts, aes(x=`MYR:Malaysian Ringgit`, y=`MXN:Mexican Peso`))+
+  geom_point(color="blue")
+```
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+columnas<-c("MXN:Mexican Peso","SEK:Swedish Krona")
+ts<-series_final[,columnas]
+ggplot(data=ts, aes(x=`SEK:Swedish Krona`, y=`MXN:Mexican Peso`))+
+  geom_point(color="blue")
+```
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+columnas<-c("MXN:Mexican Peso","ARS:Argentine Peso")
+ts<-series_final[,columnas]
+ggplot(data=ts, aes(x=`ARS:Argentine Peso`, y=`MXN:Mexican Peso`))+
+  geom_point(color="blue")
+```
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+columnas<-c("MXN:Mexican Peso","GBP:Pound Sterling")
+ts<-series_final[,columnas]
+ggplot(data=ts, aes(x=`GBP:Pound Sterling`, y=`MXN:Mexican Peso`))+
+  geom_point(color="blue")
+```
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+columnas<-c("MXN:Mexican Peso","INR:Indian Rupee")
+ts<-series_final[,columnas]
+ggplot(data=ts, aes(x=`INR:Indian Rupee`, y=`MXN:Mexican Peso`))+
+  geom_point(color="blue")
+```
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+columnas<-c("MXN:Mexican Peso","CAD:Canadian Dollar")
+ts<-series_final[,columnas]
+ggplot(data=ts, aes(x=`CAD:Canadian Dollar`, y=`MXN:Mexican Peso`))+
+  geom_point(color="blue")
+```
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+columnas<-c("MXN:Mexican Peso","LKR:Sri Lanka Rupee")
+ts<-series_final[,columnas]
+ggplot(data=ts, aes(x=`MXN:Mexican Peso`, y=`LKR:Sri Lanka Rupee`))+
+  geom_point(color="blue")
+```
+
+# Analisis inferencial
+
+Choro
+
+
+```{r message=FALSE, error=FALSE, warning=FALSE, echo=FALSE}
+n<- nrow(series_final)
+#-Defining data-
+data<-list("n"=n,"y"= series_final$`MXN:Mexican Peso`,"x1"=series_final$`VEF:Bolivar Fuerte`,"x2"=series_final$`CHF:Swiss Franc`,"x3"=series_final$`CNY:Yuan Renminbi`, "x4"= series_final$`MYR:Malaysian Ringgit`, "x5"=series_final$`SEK:Swedish Krona`, "x6"=series_final$`GBP:Pound Sterling`, "x7"=series_final$`ARS:Argentine Peso`, "x8"=series_final$`INR:Indian Rupee`, "x9"= series_final$`CAD:Canadian Dollar`, "x10"= series_final$`COP:Colombian Peso`, "x11"= series_final$`LKR:Sri Lanka Rupee`)
+
+
+#-Defining inits-
+inits<-function(){list(alpha=0,beta=rep(0,11),tau=1,yf1=rep(1,n))}
+#inits<-function(){list(alpha=rep(0,n),beta=matrix(0,nrow=3,ncol=n),tau=1,yf1=rep(1,n))}
+#inits<-function(){list(alpha=0,beta=matrix(0,nrow=3,ncol=n),tau=1,yf1=rep(1,n))}
+
+#-Selecting parameters to monitor-
+parameters<-c("alpha","beta","tau","yf1")
+
+modelo1<- "model
+{
+#Likelihood
+for (i in 1:n) {
+	y[i] ~ dnorm(mu[i],tau)
+	mu[i]<-alpha+beta[1]*x1[i]+beta[2]*x2[i]+beta[3]*x3[i]+beta[4]*x4[i]+beta[5]*x5[i]+beta[6]*x6[i]+beta[7]*x7[i]+beta[8]*x8[i]+beta[9]*x9[i]+beta[10]*x10[i]+beta[11]*x11[i]
+	}
+#Priors 
+alpha ~ dnorm(0,0.001)
+for (j in 1:11) { beta[j] ~ dnorm(0,0.001) }
+tau ~ dgamma(0.001,0.001)
+
+#Prediction 1
+for (i in 1:n) { yf1[i] ~ dnorm(mu[i],tau) }
+
+}"
+
+
+uno.sim<-jags(data,inits,parameters, model.file=textConnection(modelo1),
+               n.iter=5000,n.chains=1,n.burnin=500)
+
+```
+
+
+```{r warning=FALSE, error=FALSE, message=FALSE, echo=FALSE}
+out<-uno.sim$BUGSoutput$sims.list
+
+z<-out$alpha
+par(mfrow=c(2,2))
+plot(z,type="l")
+plot(cumsum(z)/(1:length(z)),type="l")
+hist(z,freq=FALSE)
+acf(z)
+
+#JAGS
+out.sum<-uno.sim$BUGSoutput$summary
+
+kable(out.sum[1:12,],format="html")
+
+```
+
+Dado el modelo anterior tenmos que beta2, beta6, beta9 son no significativas lo que nos dice que las siguientes monedas no aportan más información sobre el comportamiento del peso mexicano:
+
+* CHF:Swiss Franc
+* GBP:Pound Sterling
+* CAD:Canadian Dollar
+
+
+DIC
+```{r}
+
+#DIC
+out.dic<-uno.sim$BUGSoutput$DIC
+print(out.dic)
+```
+
+Graficas de las variables significativas....
+
+Graficamos yuan vs peso mexicano (en puntos rojos la prediccion)
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+#Predictions
+out.yf<-out.sum[grep("yf1",rownames(out.sum)),]
+y<-series_final$`MXN:Mexican Peso`
+ymin<-min(y,out.yf[,c(1,3,7)])
+ymax<-max(y,out.yf[,c(1,3,7)])
+yf<- out.yf[,1]
+
+#x3 vs. y
+x<-series_final$`CNY:Yuan Renminbi`
+par(mfrow=c(1,1))
+plot(x,y,type="p",col="grey50",ylim=c(ymin,ymax))
+points(x,out.yf[,1],col=2,pch=16,cex=0.5)
+#segments(x,out.yf[,3],x,out.yf[,7],col=2)
+```
+
+Graficamos VEF:Bolivar Fuerte vs peso mexicano (en puntos rojos la prediccion)
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+x<-series_final$`VEF:Bolivar Fuerte`
+par(mfrow=c(1,1))
+plot(x,y,type="p",col="grey50",ylim=c(ymin,ymax))
+points(x,out.yf[,1],col=2,pch=16,cex=0.5)
+```
+Graficamos CHF:Swiss Franc vs peso mexicano (en puntos rojos la prediccion)
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+x<-series_final$`CHF:Swiss Franc`
+par(mfrow=c(1,1))
+plot(x,y,type="p",col="grey50",ylim=c(ymin,ymax))
+points(x,out.yf[,1],col=2,pch=16,cex=0.5)
+```
+
+Graficamos MYR:Malaysian Ringgit vs peso mexicano (en puntos rojos la prediccion)
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+x<-series_final$`MYR:Malaysian Ringgit`
+par(mfrow=c(1,1))
+plot(x,y,type="p",col="grey50",ylim=c(ymin,ymax))
+points(x,out.yf[,1],col=2,pch=16,cex=0.5)
+```
+
+Graficamos SEK:Swedish Krona vs peso mexicano (en puntos rojos la prediccion)
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+x<-series_final$`SEK:Swedish Krona`
+par(mfrow=c(1,1))
+plot(x,y,type="p",col="grey50",ylim=c(ymin,ymax))
+points(x,out.yf[,1],col=2,pch=16,cex=0.5)
+```
+
+
+Graficamos GBP:Pound Sterling vs peso mexicano (en puntos rojos la prediccion)
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+x<-series_final$`GBP:Pound Sterling`
+par(mfrow=c(1,1))
+plot(x,y,type="p",col="grey50",ylim=c(ymin,ymax))
+points(x,out.yf[,1],col=2,pch=16,cex=0.5)
+```
+
+Graficamos ARS:Argentine Peso vs peso mexicano (en puntos rojos la prediccion)
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+x<-series_final$`ARS:Argentine Peso`
+par(mfrow=c(1,1))
+plot(x,y,type="p",col="grey50",ylim=c(ymin,ymax))
+points(x,out.yf[,1],col=2,pch=16,cex=0.5)
+```
+
+
+Graficamos INR:Indian Rupee vs peso mexicano (en puntos rojos la prediccion)
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+x<-series_final$`INR:Indian Rupee`
+par(mfrow=c(1,1))
+plot(x,y,type="p",col="grey50",ylim=c(ymin,ymax))
+points(x,out.yf[,1],col=2,pch=16,cex=0.5)
+```
+
+Graficamos CAD:Canadian Dollar vs peso mexicano (en puntos rojos la prediccion)
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+x<-series_final$`CAD:Canadian Dollar`
+par(mfrow=c(1,1))
+plot(x,y,type="p",col="grey50",ylim=c(ymin,ymax))
+points(x,out.yf[,1],col=2,pch=16,cex=0.5)
+```
+
+Graficamos COP:Colombian Peso vs peso mexicano (en puntos rojos la prediccion)
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+x<-series_final$`COP:Colombian Peso`
+par(mfrow=c(1,1))
+plot(x,y,type="p",col="grey50",ylim=c(ymin,ymax))
+points(x,out.yf[,1],col=2,pch=16,cex=0.5)
+```
+
+Graficamos LKR:Sri Lanka Rupee vs peso mexicano (en puntos rojos la prediccion)
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+x<-series_final$`LKR:Sri Lanka Rupee`
+par(mfrow=c(1,1))
+plot(x,y,type="p",col="grey50",ylim=c(ymin,ymax))
+points(x,out.yf[,1],col=2,pch=16,cex=0.5)
+```
+
+
+- Cambiar distribuciones iniciales y comparar DIC's
+- Probar dinámicos 
+- Si da tiempo ponerle uno jerárquico
+
+
+
+
