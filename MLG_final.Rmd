@@ -1,0 +1,346 @@
+---
+title: "Modelos predictivos para tipo de cambio"
+author: "Maximiliano Alvarez, Daniel Camarena, Lorena Malpica"
+output: html_document
+---
+
+```{r warning=FALSE, message=FALSE, echo=FALSE}
+require(dplyr)
+require(tidyverse)
+require(magrittr)
+require(lubridate)
+require(corrplot)
+require(knitr)
+require(plotly)
+require(R2jags)
+require(corrplot)
+require(stringr)
+```
+
+## Introducción
+
+### Tasas de cambio
+
+El tipo de cambio entre dos divisas o monedas es la tasa o relación de proporción que existe entre el valor de una y la otra. Dicha tasa es un indicador que expresa cuántas unidades de una divisa se necesitan para obtener una unidad de la otra.
+
+La determinación del tipo de cambio se realiza a través del mercado de divisas. El tipo de cambio como precio de una moneda se establece, como en cualquier otro mercado, por el encuentro de la oferta y la demanda de divisas. Si se analiza, por ejemplo, una situación hipotética, en la que solo existen dos monedas, la demanda de de una de estas nace cuando los consumidores de los distintos países necesitan de esta divisa para comprar mercancías procedentes del país de origen de la divisa. De la misma forma se necesita de esta moneda si una empresa de un país con una moneda distinta a esta desea comprar bienes del país de origen de la divisa en cuestión, cuando se quiere visitar dicho país o cuando una empresa compra acciones de una entidad extranjera. Aún así, todavía puede existir una razón adicional para demandar dicha moneda: la pura especulación, es decir el pensamiento de que esta moneda va a subir de valor respecto a su contraparte, provocando que la demanda de esta moneda suba.
+
+### Sistemas de tipo de cambio
+
+Es un conjunto de reglas que describen el comportamiento del Banco central en el mercado de divisas. Se identifican dos sistemas opuestos de tasas de cambio:
+
+* Tipo de cambio fijo: es determinado rígidamente por el Banco central.
+
+* Tipo de cambio flexible: se determina en un mercado libre, por el juego de la oferta y la demanda de divisas. En las economías con tipo de cambio flexible, los desequilibrios de la balanza de pagos se corrigen automáticamente por depreciación o apreciación del tipo de cambios.
+
+### Bank of International Settlements
+
+Establecido el 30 de mayo de 1930, el Banco de Pagos Internacionales (BIS) es una organización financiera internacional precedida por 60 bancos centrales miembros, con países de todo el mundo que representan cerca del 95 por ciento del PIB mundial. 
+
+La misión del BIS es servir a los bancos centrales en la búsqueda de estabilidad monetaria y financiera, procurar la cooperación internacional en dichas áreas y actuar como el banco central de los bancos centrales.
+
+En términos generales, el BIS busca cumplir su misión a través de:
+
+* promover la discusión y facilitar la colaboración entre los bancos centrales;
+
+* apoyar el diálogo con otras autoridades que son responsables de promover la estabilidad financiera;
+
+* llevar a cabo investigación y análisis de políticas en temas de relevancia para estabilidad monetaria y financiera;
+
+* actuar como principal contraparte de los bancos centrales en sus operaciones financieras; y
+
+* servir como agente o depositario en relación a operaciones financieras internacionales.
+
+Estabilidad monetaria y financiera son condiciones necesarias para el crecimiento económico y la prosperidad. En línea con esto, el BIS publica parte de su trabajo a una audiencia mucho más amplia, incluyendo:
+
+* sus propios análisis de temas de estabilidad política y monetaria;
+
+* estadísticas bancarias y financieras internacionales que apuntalan la elaboración de políticas, investigación académica y debate público. 
+
+### Estadísticas de tipo de cambio
+
+El BIS reúne y publica estadísticas del tipo de cambio para tipos de cambio contra el dólar estadounidense, índices de tipo de cambio efectivo y tipos de cambio spot y sobre derivados.
+
+* **Tipo de cambio contra el dólar**: se publican series de tipo de cambio bilateral contra el dólar para 191 economías. Estas series, obtenidas de bancos centrales así como otras fuentes, son usadas como insumos para cálcuos del BIS relacionados con tipos de cambios efectivos nominales y reales.
+
+## Objetivo
+
+El objetivo de este trabajo es presentar un modelo de regresion que permita predecir el comportamiento del tipo de cambio. Particularmente, nos centraremos en el tipo de cambio del peso mexicano contra el dólar estadounidense; como una serie de tiempo individual y posteriormente enriqueciendo el modelo con el tipo de cambio de otras economías similares o relacionadas a la mexicana.
+
+## Datos
+
+Para poder lograr nuestro objetivo, contamos con series históricas de tipos de cambio diarios para las siguientes monedas desde agosto de 1976 a la fecha:
+
+```{r warning=FALSE, message=FALSE, echo=FALSE}
+# lectura de los datos
+series <- read_csv("series_fx_usd.csv", col_types = "Dddddddddddddddddddddddddddddddddddddddd")
+
+# monedas seleccionadas
+monedas <- colnames(series)[2:length(colnames(series))] %>% 
+  as_data_frame() %>% 
+  transmute(Clave = substr(value, 1, 2),
+            Moneda = substr(value, 4, length(value)))
+
+# renombramos las columnas para manipulación más sencilla
+colnames(series) <- substr(colnames(series), 1, 2)
+colnames(series)[1] <- "Fecha"
+
+# limpieza de los datos
+series <- series[c(-1,-2,-3),]
+
+# tipos de cambio incluidos
+kable(monedas)
+```
+
+La estructura de las series históricas que tenemos es la siguiente:
+
+```{r warning=FALSE, message=FALSE, echo=FALSE}
+series %>% 
+  select(Fecha, MX, GB, CA, CO, XM, AR, JP) %>% 
+  head() %>% 
+  kable()
+```
+
+Para fines de nuestro análisis usaremos datos a partir de 2015 hasta la fecha más reciente de las series. Una vez filtrados los datos, buscaremos las correlaciones entre las distintas monedas y trabajaremos con aquellas cuya correlación con el peso mexicano sea mayor.
+
+```{r warning=FALSE, message=FALSE, echo=FALSE, width=20, heigth=16}
+# fecha de inicio del filtro
+fecha_corte <- ymd("20141231")
+
+# aplicamos el filtro y quitamos los NA
+series_f <- series %>%
+  filter(Fecha > fecha_corte) %>% 
+  na.omit()
+
+# mapa de correlaciones
+corrplot(cor(select(series_f, -Fecha)), method="circle", tl.cex=0.5)
+```
+
+De la gráfica anterior, podemos decir que las monedas que están más correlacionadas con el peso mexicano son:
+
+* Peso Argentino
+* Dólar Canadiense
+* Franco Suizo
+* Yuan Renminbi
+* Peso Colombiano
+* Libra Esterlina
+* Rupia India
+* Rupia de Sri Lanka
+* Ringgit Malasio
+* Krona Sueca
+* Bolivar Fuerte
+
+Si vemos nuevamente la matriz de correlaciones, filtrando los datos con las monedas anteriormente mencionadas, tendremos lo siguiente:
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+# monedas significativas
+monedas_significativas <- c("MX", "AR", "CA", "CH", "IN", "CO", "GB", "LK", "MY", "SE", "VE")
+
+# seleccionamos las monedas de interés
+series_f <- series_f %>% 
+  select(Fecha, MX, AR, CA, CH, IN, CN, CO, GB, LK, MY, SE, VE)
+
+# nuevo mapa de correlaciones
+corrplot(cor(select(series_f, -Fecha)), method="circle", tl.cex=0.8)
+```
+
+Para darle contecto a las observaciones, podemos ver cómo se ha comportado el tipo de cambio peso mexicano contra dólar dentro de nuestra ventana de interés:
+
+```{r message=FALSE, warning=FALSE, echo=FALSE, error=FALSE}
+# tipo de cambio a lo largo del tiempo
+series_f %>% 
+  select(Fecha, MX) %>% 
+  plot_ly(x = ~Fecha, y = ~MX, mode = 'lines', text = "MXNUSD")
+```
+
+A pesar de que lo anterior es informativo e ilustrativo, es más conveniente trabajar con diferencias diarias, para poder comparar entre distintas monedas y no tener que depender de las unidades en las que está especificada cada moneda.
+
+```{r message=FALSE, warning=FALSE, echo=FALSE, error=FALSE}
+# guardamos los datos en formato long
+series_long <- series_f %>% 
+  gather(Pais, TC, -Fecha)
+
+# calculamos las diferencias diarias
+series_long <- series_long %>% 
+  group_by(Pais) %>%
+  arrange(desc(Fecha)) %>% 
+  mutate(Diferencia = TC / lag(TC) - 1)
+
+# observamos los cambios diarios del peso mexicano
+series_f %>% 
+  select(Fecha, MX) %>% 
+  mutate(Diferencia = MX / lag(MX) - 1) %>% 
+  plot_ly(x = ~Fecha, y = ~Diferencia, mode = 'lines', text = "MXNUSD")
+```
+
+Comparando otras monedas contra el dólar, podemos contextualizar al peso dentro del mundo:
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+series_long %>% 
+  filter(Pais != "VE",
+         Pais != "AR") %>% 
+  ggplot(aes(x = Fecha, y = Diferencia)) +
+  geom_line() +
+  facet_wrap(~Pais)
+```
+
+Podemos observar que el peso mexicano es una de las monedas más volátiles respecto al dólar dentro de las monedas que estamos analizando.
+
+De las gráficas anteriores y de un análisis superficial de las series, podemos concluir los siguientes puntos:
+
+* el peso colombiano y el dólar canadiense tienen un comportamiento muy similar frente al dólar estadounidense;
+* el dólar contra el bolivar fuerte práctimante ha tenido dos valores en los últimos dos años (debido al sistema de tipo de cambio de Venezuela);
+* el valor del dólar contra el peso Argentino tiene una tendencia a la alta y no ha tenido bajas importantes en los últimos dos años; y
+* el dólar contra el peso mexicano alcanzo un pico en enero de 2017 y a partir de ahí el peso ha recuperado valor respecto a su contraparte.
+
+## Análisis inferencial
+
+Una vez explorados y entendidos los datos, es posible empezar a digerir los datos para empezar a realizar inferencia sobre los datos utilizando distintas opciones de distribuciones posteriores e iniciales de los parámetros del modelo.
+
+```{r message=FALSE, error=FALSE, warning=FALSE, echo=FALSE}
+# manipulamos los datos
+series_f <- series_long %>% 
+  select(Fecha, Pais, Diferencia) %>% 
+  spread(Pais, Diferencia) %>% 
+  filter(Fecha != last(Fecha))
+
+# definimos los datos del modelo
+n <- nrow(series_f)
+
+data <- list("n" = n, "y" = series_f$MX,
+             "x1" = series_f$VE,
+             "x2" = series_f$CH,
+             "x3" = series_f$CN,
+             "x4" = series_f$MY,
+             "x5" = series_f$SE,
+             "x6"=series_f$GB, 
+             "x7"=series_f$AR, 
+             "x8"=series_f$IN, 
+             "x9"= series_f$CA, 
+             "x10"= series_f$CO, 
+             "x11"= series_f$LK)
+
+# definimos las iniciales
+inits <- function(){list(alpha=0,beta=rep(0,11),tau=1,yf1=rep(1,n))}
+#inits<-function(){list(alpha=rep(0,n),beta=matrix(0,nrow=3,ncol=n),tau=1,yf1=rep(1,n))}
+#inits<-function(){list(alpha=0,beta=matrix(0,nrow=3,ncol=n),tau=1,yf1=rep(1,n))}
+
+# seleccionamos los parámetros a monitorear
+parameters <- c("alpha", "beta", "tau", "yf1")
+
+modelo <- 
+"model
+{
+#Likelihood
+for (i in 1:n) {
+	y[i] ~ dnorm(mu[i],tau)
+	mu[i]<-alpha+beta[1]*x1[i]+beta[2]*x2[i]+beta[3]*x3[i]+beta[4]*x4[i]+beta[5]*x5[i]+beta[6]*x6[i]+beta[7]*x7[i]+beta[8]*x8[i]+beta[9]*x9[i]+beta[10]*x10[i]+beta[11]*x11[i]
+	}
+#Priors 
+alpha ~ dnorm(0,0.001)
+for (j in 1:11) { beta[j] ~ dnorm(0,0.001) }
+tau ~ dgamma(0.001,0.001)
+#Prediction 1
+for (i in 1:n) { yf1[i] ~ dnorm(mu[i],tau) }
+}"
+
+uno.sim <- jags(data, inits, parameters, model.file = textConnection(modelo),
+                n.iter = 5000, n.chains = 1, n.burnin = 500)
+
+out <- uno.sim$BUGSoutput$sims.list
+
+z <- out$alpha
+par(mfrow = c(2,2))
+plot(z, type = "l")
+plot(cumsum(z) / (1:length(z)), type = "l")
+hist(z, freq = FALSE)
+acf(z)
+
+#JAGS
+out.sum <- uno.sim$BUGSoutput$summary
+
+kable(out.sum[1:12,])
+```
+
+Dado el modelo anterior,  tenemos que $\beta_2$, $\beta_6$ y $\beta_9$ son no significativas, lo que nos dice que las siguientes monedas no aportan más información sobre el comportamiento del peso mexicano:
+
+* **CH**: franco suizo
+* **GB**: libra inglesa
+* **CA**: dólar canadiense
+
+Para empezar a comparar los distintos modelos propuestos, compararemos los distintos DIC obtenidos de cada uno de los modelos.
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+#DIC
+out.dic <- uno.sim$BUGSoutput$DIC
+print(out.dic)
+```
+
+Graficamos los resultados del modelo
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+# predicciones
+out.yf<-out.sum[grep("yf1",rownames(out.sum)),]
+y<-series_f$MX
+ymin<-min(y,out.yf[,c(1,3,7)])
+ymax<-max(y,out.yf[,c(1,3,7)])
+yf<- out.yf[,1]
+
+# x3 vs. y
+x <- series_f$VE
+par(mfrow=c(3,4))
+plot(x,y,type="p",col="grey50",ylim=c(ymin,ymax),xlab="VE", ylab="MX")
+points(x,out.yf[,1],col=2,pch=16,cex=0.5)
+
+x <- series_f$CN
+plot(x,y,type="p",col="grey50",ylim=c(ymin,ymax),xlab="CN", ylab="MX")
+points(x,out.yf[,1],col=2,pch=16,cex=0.5)
+#segments(x,out.yf[,3],x,out.yf[,7],col=2)
+
+x <- series_f$CH
+plot(x,y,type="p",col="grey50",ylim=c(ymin,ymax),xlab="CH", ylab="MX")
+points(x,out.yf[,1],col=2,pch=16,cex=0.5)
+
+x <- series_f$MY
+plot(x,y,type="p",col="grey50",ylim=c(ymin,ymax),xlab="MY", ylab="MX")
+points(x,out.yf[,1],col=2,pch=16,cex=0.5)
+
+x <- series_f$SE
+plot(x,y,type="p",col="grey50",ylim=c(ymin,ymax),xlab="SE", ylab="MX")
+points(x,out.yf[,1],col=2,pch=16,cex=0.5)
+
+x <- series_f$GB
+plot(x,y,type="p",col="grey50",ylim=c(ymin,ymax),xlab="GB", ylab="MX")
+points(x,out.yf[,1],col=2,pch=16,cex=0.5)
+
+x <- series_f$AR
+plot(x,y,type="p",col="grey50",ylim=c(ymin,ymax),xlab="AR", ylab="MX")
+points(x,out.yf[,1],col=2,pch=16,cex=0.5)
+
+x <- series_f$IN
+plot(x,y,type="p",col="grey50",ylim=c(ymin,ymax),xlab="IN", ylab="MX")
+points(x,out.yf[,1],col=2,pch=16,cex=0.5)
+
+x <- series_f$CA
+plot(x,y,type="p",col="grey50",ylim=c(ymin,ymax),xlab="CA", ylab="MX")
+points(x,out.yf[,1],col=2,pch=16,cex=0.5)
+
+x <- series_f$CO
+plot(x,y,type="p",col="grey50",ylim=c(ymin,ymax),xlab="CO", ylab="MX")
+points(x,out.yf[,1],col=2,pch=16,cex=0.5)
+
+x <- series_f$LK
+plot(x,y,type="p",col="grey50",ylim=c(ymin,ymax),xlab="LK", ylab="MX")
+points(x,out.yf[,1],col=2,pch=16,cex=0.5)
+```
+
+- Cambiar distribuciones iniciales y comparar DIC's
+- Probar dinámicos 
+- Si da tiempo ponerle uno jerárquico
+
+## Referencias
+
+* Tasa de cambio. Wikipedia. https://es.wikipedia.org/wiki/Tasa_de_cambio.
+
+* Mercado cambiario (tipos de cambio). Banco de México. http://www.banxico.org.mx/portal-mercado-cambiario/.
+
+* About the BIS - overview. Bank of International Settlements. https://www.bis.org/about/index.htm?m=1%7C1.
