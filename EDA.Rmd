@@ -24,12 +24,18 @@ El objetivo de este trabajo es presentar un módelo de regresión avanzado que p
 Para poder lograr nuestro objetivo contamos con una base de datos que contiene los tipos de cambio diarios para las siguientes monedas desde Agosto de 1976 a la fecha:
 ```{r warning=FALSE, message=FALSE, echo=FALSE}
 series<-read.csv("series_fx_usd.csv")
-colnames(series)<-as.character(unlist(series[1,]))
+
+names1<-lapply(strsplit(colnames(series), split="\\."),'[[' , 1) %>% paste0(":")
+colnames(series)<-paste0(names1, unlist(series[1,]))
+
 colnames(series)[1]<-"Fecha"
+
+
 series<-series[c(-1,-2,-3),]
 series$Fecha<-as_date(series$Fecha)
 series[,-1]<-lapply(series[,-1], as.character)
 series[,-1]<-lapply(series[,-1], as.numeric)
+master
 colnames(series[,-1])
 ```
 
@@ -46,15 +52,31 @@ kable(head(series[,monedas],13),format="html")
 Para fines de nuestro análisis usaremos datos a partir de 2015 y hasta 2017. Una vez filtrados nuestros datos buscaremos las correlaciones entre las distintas monedas y trabajaremos con aquellas cuya correlación con el peso mexicano sea mayor
 
 ```{r warning=FALSE, message=FALSE, echo=FALSE, width=20, heigth=16}
+
+
+
 date1<-as_date("2014-12-31")
+
 #set time period
 series15_17<-subset(series, series$Fecha >date1)
+
 #remove nas
 series15_17<-series15_17[rowSums(is.na(series15_17)) == 0,]
 series15_17<-series15_17[,-35]
 cor1<-cor(series15_17[,-1])
 corrplot(cor1, method="circle", tl.cex=0.5)
 ```
+
+
+
+#remove nas & nan
+
+series15_17<-series15_17[rowSums((series15_17[,-1])=="NaN") == 0,]
+series15_17<-na.omit(series15_17)
+
+#Convertir el tipo de cambio de dolares a pesos
+series15_17mxn<-series15_17
+series15_17mxn[-1]<-mutate_all(series15_17mxn[-1], funs( . /series15_17mxn$`MX:MXN:Mexican Peso`))
 
 
 De la gráfica anterior podemos decir que las monedas que estan fuertemente correlacionadas con el peso son:
@@ -93,6 +115,19 @@ plot_ly(x = ~ts$Fecha, y = ~ts$`MXN:Mexican Peso`, mode = 'lines', text = "Tipo 
 
 Veamos el comportamiento de otras monedas
 
+```{r}
+library(ggplot2)
+library(reshape2)
+series1517_stacked<-melt(data = series15_17mxn, id="Fecha")
+ggplot(series1517_stacked, aes(x=Fecha, y=value, colour=variable, group=variable)) + 
+       geom_line() +
+	   scale_colour_manual(values=1:39)+
+	   ggtitle("Tipo de cambio peso mexicano") 
+#ver como centrar titulo
+
+```
+
+
 ```{r message=FALSE, warning=FALSE, echo=FALSE}
 columnas<-c("Fecha","VEF:Bolivar Fuerte")
 ts<-series_final[,columnas]
@@ -105,12 +140,37 @@ ts<-series_final[,columnas]
 plot_ly(x = ~ts$Fecha, y = ~ts$`ARS:Argentine Peso`, mode = 'lines', text = "Tipo de Cambio ARS")
 ```
 
-
 ```{r message=FALSE, warning=FALSE, echo=FALSE}
 columnas<-c("Fecha","GBP:Pound Sterling")
 ts<-series_final[,columnas]
 plot_ly(x = ~ts$Fecha, y = ~ts$`GBP:Pound Sterling`, mode = 'lines', text = "Tipo de Cambio GBP")
 ```
+
+```{r}
+library(ggplot2)
+library(reshape2)
+series1517_stacked<-melt(data = series15_17mxn, id="Fecha")
+ggplot(series1517_stacked[series1517_stacked[,2]=="GB:GBP:Pound Sterling"|series1517_stacked[,2]=="US:USD:US Dollar",], aes(x=Fecha, y=value, colour=variable, group=variable)) + 
+       geom_line() +
+	   scale_colour_manual(values=1:2)+
+	   ggtitle("Tipo de cambio peso mexicano") 
+
+
+```
+
+
+
+```{r}
+library(ggplot2)
+library(reshape2)
+series1517_stacked<-melt(data = series15_17mxn, id="Fecha")
+ggplot(series1517_stacked[series1517_stacked$value<.1,], aes(x=Fecha, y=value, colour=variable, group=variable)) + 
+       geom_line() +
+	   ggtitle("Tipo de cambio peso mexicano") 
+
+```
+
+
 
 
 ```{r message=FALSE, warning=FALSE, echo=FALSE}
