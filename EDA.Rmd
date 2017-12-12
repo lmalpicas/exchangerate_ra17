@@ -1,39 +1,28 @@
 ---
-title: "Proyecto_final"
+title: "Modelo para predicción de tipos de cambio"
+author: "Maximiliano Álvarez, Daniel Camarena, Lorena Malpica"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+
+```{r warning=FALSE, message=FALSE, echo=FALSE }
+require(dplyr)
+require(magrittr)
+require(lubridate)
+require(corrplot)
+require(knitr)
+require(plotly)
 ```
+#Introducción
 
-## R Markdown
+Hoy en día se cuenta con un gran volumen de información de las distintas economías del mundo, sin embargo, es complicado predecir cómo es que el cambio en algunas de ellas afectan a otras. En un mundo globalizado como en el que vivimos hoy esta pregunta es de gran interés.
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+El objetivo de este trabajo es presentar un módelo de regresión avanzado que permita predecir el comportamiento del tipo de cambio del peso mexicano vs el dólar americano, a partir de los tipos de cambio de otras economías ajenas a la mexicana.
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+#Datos
 
-```{r cars}
-summary(cars)
-```
-
-## Including Plots
-
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
-```
-
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
-
-
-```{r }
-library(dplyr)
-library(magrittr)
-library(lubridate)
-
-setwd("/home/lmalpica/Desktop/regresionavanzada2017/exchangerate")
+Para poder lograr nuestro objetivo contamos con una base de datos que contiene los tipos de cambio diarios para las siguientes monedas desde Agosto de 1976 a la fecha:
+```{r warning=FALSE, message=FALSE, echo=FALSE}
 series<-read.csv("series_fx_usd.csv")
 
 names1<-lapply(strsplit(colnames(series), split="\\."),'[[' , 1) %>% paste0(":")
@@ -46,11 +35,39 @@ series<-series[c(-1,-2,-3),]
 series$Fecha<-as_date(series$Fecha)
 series[,-1]<-lapply(series[,-1], as.character)
 series[,-1]<-lapply(series[,-1], as.numeric)
+master
+colnames(series[,-1])
+```
+
+
+Veamos un ejemplo de nuestros datos (filtrando algunas monedas)
+
+
+```{r warning=FALSE, message=FALSE, echo=FALSE}
+monedas<-c("Fecha","GBP:Pound Sterling","CAD:Canadian Dollar","COP:Colombian Peso","MXN:Mexican Peso")
+kable(head(series[,monedas],13),format="html")
+```
+
+
+Para fines de nuestro análisis usaremos datos a partir de 2015 y hasta 2017. Una vez filtrados nuestros datos buscaremos las correlaciones entre las distintas monedas y trabajaremos con aquellas cuya correlación con el peso mexicano sea mayor
+
+```{r warning=FALSE, message=FALSE, echo=FALSE, width=20, heigth=16}
+
+
 
 date1<-as_date("2014-12-31")
 
 #set time period
 series15_17<-subset(series, series$Fecha >date1)
+
+#remove nas
+series15_17<-series15_17[rowSums(is.na(series15_17)) == 0,]
+series15_17<-series15_17[,-35]
+cor1<-cor(series15_17[,-1])
+corrplot(cor1, method="circle", tl.cex=0.5)
+```
+
+
 
 #remove nas & nan
 
@@ -61,8 +78,42 @@ series15_17<-na.omit(series15_17)
 series15_17mxn<-series15_17
 series15_17mxn[-1]<-mutate_all(series15_17mxn[-1], funs( . /series15_17mxn$`MX:MXN:Mexican Peso`))
 
+
+De la gráfica anterior podemos decir que las monedas que estan fuertemente correlacionadas con el peso son:
+
+* Peso Argentino
+* Dolar Canadiense
+* Franco Swizo
+* Yuan Renminbi
+* Peso Colombiano
+* Libra Esterlina
+* Rupia India
+* Rupia de Sri Lanka
+* Ringgit Malasio
+* Krona Sueca
+* Bolivar Fuerte
+
+Si vemos nuevamente la matriz de correlaciónes filtrando los datos con las monedas anteriormente mencionadas tendremos lo siguiente:
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+#Buscamos tipos de cambio correlacionados con Mexico
+monedas<-c("VEF:Bolivar Fuerte","CHF:Swiss Franc","CNY:Yuan Renminbi","MYR:Malaysian Ringgit","SEK:Swedish Krona","GBP:Pound Sterling","ARS:Argentine Peso","INR:Indian Rupee","CAD:Canadian Dollar","COP:Colombian Peso","LKR:Sri Lanka Rupee","MXN:Mexican Peso")
+cor <- cor(series15_17[,monedas])
+corrplot(cor, method = "circle",tl.cex=0.8)
+#Armamos el data set final
+series_final <- cbind(series15_17[,"Fecha"],series15_17[,monedas])
+colnames(series_final)<-c("Fecha","VEF:Bolivar Fuerte","CHF:Swiss Franc","CNY:Yuan Renminbi","MYR:Malaysian Ringgit","SEK:Swedish Krona","GBP:Pound Sterling","ARS:Argentine Peso","INR:Indian Rupee","CAD:Canadian Dollar","COP:Colombian Peso","LKR:Sri Lanka Rupee","MXN:Mexican Peso")
 ```
 
+Veamos como ha variado el peso mexicano a lo largo de estos dos años:
+
+```{r message=FALSE, warning=FALSE, echo=FALSE, error=FALSE}
+columnas<-c("Fecha","MXN:Mexican Peso")
+ts<-series_final[,columnas]
+plot_ly(x = ~ts$Fecha, y = ~ts$`MXN:Mexican Peso`, mode = 'lines', text = "Tipo de Cambio MXN")
+```
+
+Veamos el comportamiento de otras monedas
 
 ```{r}
 library(ggplot2)
@@ -77,6 +128,23 @@ ggplot(series1517_stacked, aes(x=Fecha, y=value, colour=variable, group=variable
 ```
 
 
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+columnas<-c("Fecha","VEF:Bolivar Fuerte")
+ts<-series_final[,columnas]
+plot_ly(x = ~ts$Fecha, y = ~ts$`VEF:Bolivar Fuerte`, mode = 'lines', text = "Tipo de Cambio VEF")
+```
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+columnas<-c("Fecha","ARS:Argentine Peso")
+ts<-series_final[,columnas]
+plot_ly(x = ~ts$Fecha, y = ~ts$`ARS:Argentine Peso`, mode = 'lines', text = "Tipo de Cambio ARS")
+```
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+columnas<-c("Fecha","GBP:Pound Sterling")
+ts<-series_final[,columnas]
+plot_ly(x = ~ts$Fecha, y = ~ts$`GBP:Pound Sterling`, mode = 'lines', text = "Tipo de Cambio GBP")
+```
 
 ```{r}
 library(ggplot2)
@@ -105,7 +173,23 @@ ggplot(series1517_stacked[series1517_stacked$value<.1,], aes(x=Fecha, y=value, c
 
 
 
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+columnas<-c("Fecha","CAD:Canadian Dollar")
+ts<-series_final[,columnas]
+plot_ly(x = ~ts$Fecha, y = ~ts$`CAD:Canadian Dollar`, mode = 'lines', text = "Tipo de Cambio CAD")
+```
 
 
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+columnas<-c("Fecha","COP:Colombian Peso")
+ts<-series_final[,columnas]
+plot_ly(x = ~ts$Fecha, y = ~ts$`COP:Colombian Peso`, mode = 'lines', text = "Tipo de Cambio COP")
+```
 
+De las gráficas presentadas anteriormente podemos concluír lo siguiente:
+
+* El peso colombiano y el dolar canadiense tienen un comportamiento muy similar frente al dolar
+* El dolar vs el VEF práctimante ha tenido dos valores en los últimos dos años
+* El valor del dolar vs el peso Argentino tiene una tendencia a la alta y no ha tenido bajas importantes en los últimos dos años
+* El dolar vs el peso mexicano alcanzo un pico en Enero de 2017 y a partir de ahi ha perdido valor de manera considerable
 
